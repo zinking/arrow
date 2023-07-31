@@ -32,6 +32,7 @@
 #include "arrow/compute/registry.h"
 #include "arrow/testing/gtest_util.h"
 #include "arrow/testing/matchers.h"
+#include "arrow/compute/exec/test_util.h"
 
 using testing::Eq;
 using testing::HasSubstr;
@@ -1616,6 +1617,65 @@ TEST(Expression, SerializationRoundTrips) {
                          equal(field_ref("hour"), literal(int8_t(0))),
                          equal(field_ref("alpha"), literal(int32_t(0))),
                          equal(field_ref("beta"), literal(3.25f))}));
+}
+
+TEST(Expression, ParseBasic) {
+  const char* expr_str = "add($int32:1, .i32_0)";
+  ASSERT_OK_AND_ASSIGN(Expression expr, Expression::FromString(expr_str));
+  ExecBatch batch = ExecBatchFromJSON({int32(), int32()}, "[[1, 2], [1, 2]]");
+  std::shared_ptr<Schema> sch =
+      schema({field("i32_0", int32()), field("i32_1", int32())});
+  ASSERT_OK_AND_ASSIGN(expr, expr.Bind(*sch.get()));
+  ASSERT_OK_AND_ASSIGN(Datum result, ExecuteScalarExpression(expr, batch));
+  const int32_t* vals =
+      reinterpret_cast<const int32_t*>(result.array()->buffers[1]->data());
+  ASSERT_EQ(result.array()->length, 2);
+  ASSERT_EQ(vals[0], 2);
+  ASSERT_EQ(vals[1], 2);
+}
+
+TEST(Expression, ParseComplexExpr) {
+  const char* expr_str = "add(multiply(.m, .x), .b)";
+  ASSERT_OK_AND_ASSIGN(Expression expr, Expression::FromString(expr_str));
+  ExecBatch batch =
+      ExecBatchFromJSON({int32(), int32(), int32()}, "[[3, 1, 1], [1, 1, 0], [3, 3, 1]]");
+  std::shared_ptr<Schema> sch =
+      schema({field("m", int32()), field("x", int32()), field("b", int32())});
+  ASSERT_OK_AND_ASSIGN(expr, expr.Bind(*sch.get()));
+  ASSERT_OK_AND_ASSIGN(Datum result, ExecuteScalarExpression(expr, batch));
+  const int32_t* vals =
+      reinterpret_cast<const int32_t*>(result.array()->buffers[1]->data());
+  ASSERT_EQ(result.array()->length, 3);
+  ASSERT_EQ(vals[0], 4);
+  ASSERT_EQ(vals[1], 1);
+  ASSERT_EQ(vals[2], 10);
+}
+
+TEST(Expression, ParseComplexScalar) {
+  const char* expr_str = "add($duration(MILLI):10, $duration(MILLI):20)";
+  ASSERT_OK_AND_ASSIGN(Expression expr, Expression::FromString(expr_str));
+  std::shared_ptr<Schema> empty_schema = schema({});
+  ASSERT_OK_AND_ASSIGN(expr, expr.Bind(*empty_schema.get()));
+  ASSERT_OK_AND_ASSIGN(Datum result, ExecuteScalarExpression(expr, {}));
+  DurationScalar expected(30, TimeUnit::MILLI);
+  ASSERT_TRUE(result.scalar()->Equals(expected));
+}
+
+TEST(Expression, ParseEscaped) {
+  const char* expr_str = "$utf8:hello\\, \\(world\\)";
+  ASSERT_OK_AND_ASSIGN(Expression expr, Expression::FromString(expr_str));
+  std::shared_ptr<Schema> empty_schema = schema({});
+  ASSERT_OK_AND_ASSIGN(expr, expr.Bind(*empty_schema.get()));
+  ASSERT_OK_AND_ASSIGN(Datum result, ExecuteScalarExpression(expr, {}));
+  StringScalar expected("hello, (world)");
+  ASSERT_TRUE(result.scalar()->Equals(expected));
+}
+
+TEST(Expression, ParseErrorMessage) {
+  const char* expr_str = "$asdfasdf:horoshaya_kartoshka";
+  EXPECT_RAISES_WITH_MESSAGE_THAT(Invalid,
+                                  testing::HasSubstr("...asdf:horoshaya_karto..."),
+                                  Expression::FromString(expr_str));
 }
 
 TEST(Projection, AugmentWithNull) {

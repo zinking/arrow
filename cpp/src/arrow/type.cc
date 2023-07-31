@@ -1416,14 +1416,13 @@ void FieldRef::Flatten(std::vector<FieldRef> children) {
   }
 }
 
-Result<FieldRef> FieldRef::FromDotPath(const std::string& dot_path_arg) {
-  if (dot_path_arg.empty()) {
-    return FieldRef();
+Result<FieldRef> FieldRef::FromDotPath(std::string_view dot_path) {
+  std::string_view original_dot_path = dot_path;
+  if (dot_path.empty()) {
+    return Status::Invalid("Dot path was empty");
   }
 
   std::vector<FieldRef> children;
-
-  std::string_view dot_path = dot_path_arg;
 
   auto parse_name = [&] {
     std::string name;
@@ -1470,7 +1469,7 @@ Result<FieldRef> FieldRef::FromDotPath(const std::string& dot_path_arg) {
       case '[': {
         auto subscript_end = dot_path.find_first_not_of("0123456789");
         if (subscript_end == std::string_view::npos || dot_path[subscript_end] != ']') {
-          return Status::Invalid("Dot path '", dot_path_arg,
+          return Status::Invalid("Dot path '", original_dot_path,
                                  "' contained an unterminated index");
         }
         children.emplace_back(std::atoi(dot_path.data()));
@@ -1478,8 +1477,8 @@ Result<FieldRef> FieldRef::FromDotPath(const std::string& dot_path_arg) {
         continue;
       }
       default:
-        return Status::Invalid("Dot path must begin with '[' or '.', got '", dot_path_arg,
-                               "'");
+        return Status::Invalid("Dot path must begin with '[' or '.', got '",
+                               original_dot_path, "'");
     }
   }
 
