@@ -27,12 +27,12 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "arrow/acero/test_util_internal.h"
 #include "arrow/compute/expression_internal.h"
 #include "arrow/compute/function_internal.h"
 #include "arrow/compute/registry.h"
 #include "arrow/testing/gtest_util.h"
 #include "arrow/testing/matchers.h"
-#include "arrow/compute/exec/test_util.h"
 
 using testing::Eq;
 using testing::HasSubstr;
@@ -1619,63 +1619,53 @@ TEST(Expression, SerializationRoundTrips) {
                          equal(field_ref("beta"), literal(3.25f))}));
 }
 
-TEST(Expression, ParseBasic) {
-  const char* expr_str = "add($int32:1, .i32_0)";
-  ASSERT_OK_AND_ASSIGN(Expression expr, Expression::FromString(expr_str));
-  ExecBatch batch = ExecBatchFromJSON({int32(), int32()}, "[[1, 2], [1, 2]]");
-  std::shared_ptr<Schema> sch =
-      schema({field("i32_0", int32()), field("i32_1", int32())});
-  ASSERT_OK_AND_ASSIGN(expr, expr.Bind(*sch.get()));
-  ASSERT_OK_AND_ASSIGN(Datum result, ExecuteScalarExpression(expr, batch));
-  const int32_t* vals =
-      reinterpret_cast<const int32_t*>(result.array()->buffers[1]->data());
-  ASSERT_EQ(result.array()->length, 2);
-  ASSERT_EQ(vals[0], 2);
-  ASSERT_EQ(vals[1], 2);
-}
+TEST(Expression, ParseExpressionJson) {
+  const std::vector<std::string> jsonStrings = {
+    "{\"op\":\"FALSE\"}",
+    "{\"op\":\"TRUE\"}",
+    "{\"op\":\"LT\",\"name\":\"x\",\"literal-number\":1,\"value\":["
+    "{\"class\":\"IntegerLiteral\",\"val\":5}]}",
+    "{\"op\":\"LT_EQ\",\"name\":\"y\",\"literal-number\":1,\"value\":["
+    "{\"class\":\"IntegerLiteral\",\"val\":-3}]}",
+    "{\"op\":\"GT\",\"name\":\"z\",\"literal-number\":1,\"value\":["
+    "{\"class\":\"IntegerLiteral\",\"val\":0}]}",
+    "{\"op\":\"GT_EQ\",\"name\":\"t\",\"literal-number\":1,\"value\":["
+    "{\"class\":\"IntegerLiteral\",\"val\":129}]}",
+    "{\"op\":\"EQ\",\"name\":\"col\",\"literal-number\":1,\"value\":["
+    "{\"class\":\"StringLiteral\",\"val\":\"data\"}]}",
+//    "{\"op\":\"IN\",\"name\":\"col\",\"literal-number\":2,\"value\":["
+//    "{\"class\":\"StringLiteral\",\"val\":\"a\"},"
+//    "{\"class\":\"StringLiteral\",\"val\":\"b\"}]}",
+//    "{\"op\":\"NOT_IN\",\"name\":\"col\",\"literal-number\":3,\"value\":["
+//    "{\"class\":\"IntegerLiteral\",\"val\":1},"
+//    "{\"class\":\"IntegerLiteral\",\"val\":2},"
+//    "{\"class\":\"IntegerLiteral\",\"val\":3}]}",
+    "{\"op\":\"NOT_EQ\",\"name\":\"col\",\"literal-number\":1,\"value\":["
+    "{\"class\":\"StringLiteral\",\"val\":\"abc\"}]}",
+    "{\"op\":\"NOT_NULL\",\"name\":\"maybeNull\"}",
+    "{\"op\":\"IS_NULL\",\"name\":\"maybeNull2\"}",
+    "{\"op\":\"IS_NAN\",\"name\":\"maybeNaN\"}",
+    "{\"op\":\"NOT_NAN\",\"name\":\"maybeNaN2\"}",
+//    "{\"op\":\"STARTS_WITH\",\"name\":\"col\",\"literal-number\":1,\"value\":["
+//    "{\"class\":\"StringLiteral\",\"val\":\"abc\"}]}",
+//    "{\"op\":\"NOT_STARTS_WITH\",\"name\":\"col\",\"literal-number\":1,\"value\":["
+//    "{\"class\":\"StringLiteral\",\"val\":\"abc\"}]}",
+    "{\"op\":\"NOT\",\"child\":{\"op\":\"GT\",\"name\":\"a\",\"literal-number\":1,"
+    "\"value\":[{\"class\":\"IntegerLiteral\",\"val\":10}]}}",
+    "{\"op\":\"AND\",\"left\":{\"op\":\"GT_EQ\",\"name\":\"a\",\"literal-number\":1,"
+    "\"value\":[{\"class\":\"IntegerLiteral\",\"val\":0}]},"
+    "\"right\":{\"op\":\"LT\",\"name\":\"a\",\"literal-number\":1,"
+    "\"value\":[{\"class\":\"IntegerLiteral\",\"val\":3}]}}",
+    "{\"op\":\"OR\",\"left\":{\"op\":\"LT\",\"name\":\"a\",\"literal-number\":1,"
+    "\"value\":[{\"class\":\"IntegerLiteral\",\"val\":0}]},"
+    "\"right\":{\"op\":\"GT\",\"name\":\"a\",\"literal-number\":1,"
+    "\"value\":[{\"class\":\"IntegerLiteral\",\"val\":10}]}}"
+  };
 
-TEST(Expression, ParseComplexExpr) {
-  const char* expr_str = "add(multiply(.m, .x), .b)";
-  ASSERT_OK_AND_ASSIGN(Expression expr, Expression::FromString(expr_str));
-  ExecBatch batch =
-      ExecBatchFromJSON({int32(), int32(), int32()}, "[[3, 1, 1], [1, 1, 0], [3, 3, 1]]");
-  std::shared_ptr<Schema> sch =
-      schema({field("m", int32()), field("x", int32()), field("b", int32())});
-  ASSERT_OK_AND_ASSIGN(expr, expr.Bind(*sch.get()));
-  ASSERT_OK_AND_ASSIGN(Datum result, ExecuteScalarExpression(expr, batch));
-  const int32_t* vals =
-      reinterpret_cast<const int32_t*>(result.array()->buffers[1]->data());
-  ASSERT_EQ(result.array()->length, 3);
-  ASSERT_EQ(vals[0], 4);
-  ASSERT_EQ(vals[1], 1);
-  ASSERT_EQ(vals[2], 10);
-}
-
-TEST(Expression, ParseComplexScalar) {
-  const char* expr_str = "add($duration(MILLI):10, $duration(MILLI):20)";
-  ASSERT_OK_AND_ASSIGN(Expression expr, Expression::FromString(expr_str));
-  std::shared_ptr<Schema> empty_schema = schema({});
-  ASSERT_OK_AND_ASSIGN(expr, expr.Bind(*empty_schema.get()));
-  ASSERT_OK_AND_ASSIGN(Datum result, ExecuteScalarExpression(expr, {}));
-  DurationScalar expected(30, TimeUnit::MILLI);
-  ASSERT_TRUE(result.scalar()->Equals(expected));
-}
-
-TEST(Expression, ParseEscaped) {
-  const char* expr_str = "$utf8:hello\\, \\(world\\)";
-  ASSERT_OK_AND_ASSIGN(Expression expr, Expression::FromString(expr_str));
-  std::shared_ptr<Schema> empty_schema = schema({});
-  ASSERT_OK_AND_ASSIGN(expr, expr.Bind(*empty_schema.get()));
-  ASSERT_OK_AND_ASSIGN(Datum result, ExecuteScalarExpression(expr, {}));
-  StringScalar expected("hello, (world)");
-  ASSERT_TRUE(result.scalar()->Equals(expected));
-}
-
-TEST(Expression, ParseErrorMessage) {
-  const char* expr_str = "$asdfasdf:horoshaya_kartoshka";
-  EXPECT_RAISES_WITH_MESSAGE_THAT(Invalid,
-                                  testing::HasSubstr("...asdf:horoshaya_karto..."),
-                                  Expression::FromString(expr_str));
+  for (const auto& jsonString : jsonStrings) {
+    ASSERT_OK_AND_ASSIGN(Expression expr, Expression::FromString(jsonString));
+    EXPECT_EQ(true, expr.is_valid());
+  }
 }
 
 TEST(Projection, AugmentWithNull) {

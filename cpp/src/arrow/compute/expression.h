@@ -132,21 +132,6 @@ class ARROW_EXPORT Expression {
   explicit Expression(Call call);
   explicit Expression(Datum literal);
   explicit Expression(Parameter parameter);
-
-  /*
-    Grammar:
-    Expr -> FieldRef | Literal | Call
-
-    FieldRef -> Field | Field FieldRef
-    Field -> . Name | [ Number ]
-
-    Literal -> $ TypeName : Value
-
-    Call -> Name ( ExprList )
-    ExprList -> Expr | Expr , ExprList
-
-    Name, TypeName, Value, and Number take the obvious values
-   */
   static Result<Expression> FromString(std::string_view expr);
 
  private:

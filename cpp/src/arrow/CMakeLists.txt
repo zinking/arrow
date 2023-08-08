@@ -401,6 +401,7 @@ list(APPEND
      compute/key_map.cc
      compute/light_array.cc
      compute/ordering.cc
+     compute/parsing.cc
      compute/registry.cc
      compute/kernels/codegen_internal.cc
      compute/kernels/row_encoder.cc
